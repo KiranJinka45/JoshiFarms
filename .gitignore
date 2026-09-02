@@ -1,0 +1,32 @@
+﻿# Environment & Secrets
+.env
+*.env
+backend/.env
+*.pem
+*.key
+
+# Dependencies
+node_modules/
+.venv/
+env/
+venv/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Python cache & logs
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.log
+
+# Test & IDE outputs
+test-results/
+playwright-report/
+.vscode/
+.idea/
+.DS_Store
+*.png
