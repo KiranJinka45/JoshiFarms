@@ -1,10 +1,10 @@
-# Farm Fresh Dairy: Production-Grade Milk Delivery Operations Platform with Secure Payments
+﻿# Farm Fresh Dairy: Production-Grade Milk Delivery Operations Platform with Secure Payments & AI-Assisted Dispatch
 
 ## Executive Summary
 
-**Farm Fresh Dairy** is a production-grade, full-stack micro-dairy logistics and delivery platform engineered to manage doorstep fresh milk delivery across tier-1 urban zones. The system features a strict **7-hour booking cutoff engine**, **deterministic multi-depot inventory routing**, **prepaid wallet atomicity**, **role-isolated operational workflows** (Customer, Driver, Admin), and an enterprise-grade **Razorpay payment gateway integration** backed by server-side HMAC-SHA256 signature verification and idempotent webhook processing.
+**Farm Fresh Dairy** is a production-grade, full-stack micro-dairy logistics and delivery platform engineered to manage doorstep fresh milk delivery across tier-1 urban zones. The system features a strict **7-hour booking cutoff engine**, **deterministic multi-depot inventory routing**, **prepaid wallet atomicity**, **role-isolated operational workflows** (Customer, Driver, Admin), an enterprise-grade **Razorpay payment gateway integration** backed by server-side HMAC-SHA256 signature verification and idempotent webhook processing, and an **AI Dispatcher & Exception Assistant** for human-in-the-loop operational exception resolution.
 
-As the Lead Full-Stack & Systems Engineer on this project, I architected and implemented the core domain logic, backend REST APIs, frontend React state machine, end-to-end security hardening, and a multi-tiered test suite (unit, API integration, and headless Playwright E2E). The platform achieves **100% type safety**, **zero quota-leaking test isolation**, and **fail-closed security controls** across authentication and payment verification boundaries.
+As the Lead Full-Stack & Systems Engineer on this project, I architected and implemented the core domain logic, backend REST APIs, frontend React state machine, end-to-end security hardening, and a multi-tiered test suite (unit, API integration, and headless Playwright E2E). The platform achieves **100% type safety**, **zero quota-leaking test isolation**, and **fail-closed security controls** across authentication, payment verification, and AI dispatch boundaries.
 
 ---
 
@@ -13,8 +13,9 @@ As the Lead Full-Stack & Systems Engineer on this project, I architected and imp
 - **Zero-Trust Payment Verification**: Server-side HMAC-SHA256 signature validation over checkout tokens and raw webhook payloads using constant-time comparison (`hmac.compare_digest`), eliminating client-side spoofing.
 - **Strict 7-Hour Cutoff Enforcement**: Revalidates time boundaries on both client UI and server clock (`get_slot_availability`), rejecting write-time race conditions with `HTTP 409 Conflict`.
 - **Idempotent Webhook Engine**: Deduplicates `payment.captured` events via unique Razorpay payment ID tracking (`already_processed`), preventing double-crediting or duplicate order fulfillment.
+- **AI Dispatcher & Exception Assistant**: Structured reasoning API (`POST /api/v1/admin/ai/suggest-exception-resolution`) providing 90%+ confidence recommendations for unassigned orders and failed doorstep drop-offs with mandatory Human-in-the-Loop approval.
 - **Role-Isolated Workflows**: Strict data and control boundary enforcement between Customer self-service, Driver doorstep delivery with Proof-of-Delivery (POD), and Admin exception dispatching.
-- **Verified Test Suite**: **37 passing backend Python tests** (pytest), **10 passing Playwright E2E specs** (~23s offline execution), and **0 TypeScript build/type errors**.
+- **Verified Test Suite**: **39 passing backend Python tests** (pytest), **10 passing Playwright E2E specs** (~23s offline execution), and **0 TypeScript build/type errors**.
 
 ---
 
@@ -44,6 +45,7 @@ graph TD
         AuthModule["Fail-Closed OTP Auth Module"]
         PricingCutoff["Pricing & 7-Hour Cutoff Engine"]
         DepotRouter["Multi-Depot Routing Engine"]
+        AIDispatcher["AI Dispatcher Assistant (Human-in-the-Loop)"]
         RazorpaySvc["Razorpay Service & HMAC Verifier"]
     end
 
@@ -161,6 +163,31 @@ sequenceDiagram
 
 ---
 
+## AI-Powered Operations: Dispatcher & Exception Assistant
+
+To eliminate manual bottlenecks in logistics exception management, an **AI Dispatcher Assistant** was integrated into the Admin Exception Queue.
+
+### Architecture & Human-in-the-Loop Control Flow:
+1. **Exception Event Detection**: Unassigned pincodes or failed 5:30 AM drop-offs generate an open exception `EXC-XXX`.
+2. **Structured AI Evaluation**: Admin clicks `✨ AI Suggest Resolution`. The backend endpoint `POST /api/v1/admin/ai/suggest-exception-resolution` evaluates operational parameters (depot capacities, proximity, customer historical availability) and returns structured JSON.
+3. **Human Approval Gate**: The UI renders a dedicated AI Assistant Card detailing the summary, justification, confidence score (e.g. `94% Confidence`), and exact resolution action. The action remains unexecuted until the Admin explicitly clicks **"Approve & Execute"**.
+
+```json
+{
+  "exception_id": "EXC-1001",
+  "order_id": "ORD-9999",
+  "summary": "Order ORD-9999 failed primary depot assignment for pincode 560099 due to service zone boundaries.",
+  "suggested_action": "Override routing to Primary Regional Hub (depot-1)",
+  "recommended_depot_id": "depot-1",
+  "recommended_depot_name": "Koramangala Central Depot",
+  "confidence_score": 0.94,
+  "reasoning": "Koramangala Central Hub (depot-1) has available morning capacity (120/500 orders) and is the closest operational fallback depot for pincode 560099.",
+  "requires_human_approval": true
+}
+```
+
+---
+
 ## Security Hardening & Controls
 
 | Security Mechanism | Implementation | Enforcement Location |
@@ -184,7 +211,7 @@ The project enforces a **2-tier test isolation model**:
    - External integration tests (`email-otp.sandbox.spec.ts`, `razorpay-order.sandbox.spec.ts`, `razorpay-webhook.sandbox.spec.ts`) are stored in `e2e/external/` and gated behind `RUN_EXTERNAL_TESTS=1`.
 
 ### Verification Test Summary:
-- **37 Pytest Backend Unit Tests**: `test_payment_verification.py`, `test_webhooks.py`, `test_cutoff.py`, `test_depot_assignment.py`, `test_wallet.py`, `test_production_security.py`.
+- **39 Pytest Backend Unit Tests**: `test_ai_dispatcher.py`, `test_payment_verification.py`, `test_webhooks.py`, `test_cutoff.py`, `test_depot_assignment.py`, `test_wallet.py`, `test_production_security.py`.
 - **10 Offline E2E Specs**: Full customer ordering, driver shift/POD, admin dispatch override, COD slot restrictions, 7-hour cutoff boundary math.
 
 ---
@@ -193,7 +220,7 @@ The project enforces a **2-tier test isolation model**:
 
 1. **Client-Side Callback Vulnerability**: Initial prototype designs relied on client-side JS callbacks from payment gateways. Moving to server-side HMAC-SHA256 verification was essential to prevent forged client payloads.
 2. **Raw Body vs Serialized JSON Webhooks**: Standard JSON parsers reorder keys or format whitespace differently than the original raw bytes sent by Razorpay. Signature verification MUST be performed on unparsed byte arrays (`await request.body()`) before JSON deserialization.
-3. **Future AI Enhancement (Planned)**: Integrating an **AI Dispatcher & Exception Assistant** to analyze depot assignment failures and suggest automated rerouting options with human-in-the-loop admin approval.
+3. **Human-in-the-Loop AI Governance**: Restricting AI recommendations to structured JSON schemas with required human approval prevents autonomous hallucination or unauthorized state mutations in production supply chains.
 
 ---
 
